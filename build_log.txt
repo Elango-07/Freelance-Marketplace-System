@@ -1,0 +1,28 @@
+
+> v1@0.0.0 build
+> vite build
+
+[36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 5110 modules transformed.
+[31m✗[39m Build failed in 12.76s
+[31merror during build:
+[31msrc/components/AdminNotificationPanel.jsx (2:9): "Badge" is not exported by "node_modules/@ant-design/icons/es/index.js", imported by "src/components/AdminNotificationPanel.jsx".[31m
+file: [36mC:/Users/elang/OneDrive/Desktop/v1/src/components/AdminNotificationPanel.jsx:2:9[31m
+[33m
+1: import React from 'react';
+2: import { Badge, BellOutlined, MessageOutlined, ProjectOutlined, WarningOutlined, DollarCircleOutlined } from '@ant-de...
+            ^
+3: import { Popover, List, Typography, Space, Button, Tag, Empty } from 'antd';
+4: import { useAppContext } from '../context/AppContext';
+[31m
+    at getRollupError (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/parseAst.js:402:41)
+    at error (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/parseAst.js:398:42)
+    at Module.error (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:17040:16)
+    at Module.traceVariable (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:17452:29)
+    at ModuleScope.findVariable (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:15070:39)
+    at ReturnValueScope.findVariable (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:5673:38)
+    at FunctionBodyScope.findVariable (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:5673:38)
+    at Identifier.bind (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:5447:40)
+    at CallExpression.bind (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:2825:28)
+    at CallExpression.bind (file:///C:/Users/elang/OneDrive/Desktop/v1/node_modules/rollup/dist/es/shared/node-entry.js:12179:15)[39m

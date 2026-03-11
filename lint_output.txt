@@ -1,0 +1,112 @@
+
+C:\Users\elang\OneDrive\Desktop\v1\src\context\AppContext.jsx
+    6:14  error  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-refresh/only-export-components
+   54:11  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  52 |     const newProject = {
+  53 |       ...projectDetails,
+> 54 |       id: Date.now(),
+     |           ^^^^^^^^^^ Cannot call impure function
+  55 |       status: 'Active',
+  56 |       progress: 0,
+  57 |       priority: projectDetails.priority || 'Medium',  react-hooks/purity
+  159:13  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  157 |     if (violationList.length > 0) {
+  158 |       const violation = {
+> 159 |         id: Date.now(),
+      |             ^^^^^^^^^^ Cannot call impure function
+  160 |         senderId,
+  161 |         projectId,
+  162 |         text,                        react-hooks/purity
+  171:11  error  Error: Cannot call impure function during render
+
+`Date.now` is an impure function. Calling an impure function can produce unstable results that update unpredictably when the component happens to re-render. (https://react.dev/reference/rules/components-and-hooks-must-be-pure#components-and-hooks-must-be-idempotent).
+
+  169 |
+  170 |     const newMessage = {
+> 171 |       id: Date.now(),
+      |           ^^^^^^^^^^ Cannot call impure function
+  172 |       projectId,
+  173 |       senderId,
+  174 |       receiverId,                                                                 react-hooks/purity
+
+C:\Users\elang\OneDrive\Desktop\v1\src\context\AuthContext.jsx
+   6:14  error    Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   react-refresh/only-export-components
+  28:7   error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  26 |         { id: 3, name: 'Partner User', email: 'partner@test.com', password: 'password', role: 'Partner', avatar: '' }
+  27 |       ];
+> 28 |       setUsers(demoUsers);
+     |       ^^^^^^^^ Avoid calling setState() directly within an effect
+  29 |     }
+  30 |   }, []);
+  31 |  react-hooks/set-state-in-effect
+  30:6   warning  React Hook useEffect has a missing dependency: 'users.length'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/exhaustive-deps
+
+C:\Users\elang\OneDrive\Desktop\v1\src\pages\AdminDashboard.jsx
+  3:10  error  'useAuth' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\Users\elang\OneDrive\Desktop\v1\src\pages\ChatPage.jsx
+  28:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  26 |     if (conversations.length > 0 && !selectedConversationId) {
+  27 |       const firstId = conversations[0].id;
+> 28 |       setSelectedConversationId(firstId);
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  29 |       markConversationRead(firstId, user.id);
+  30 |     }
+  31 |   }, [conversations, selectedConversationId, markConversationRead, user.id]);  react-hooks/set-state-in-effect
+
+C:\Users\elang\OneDrive\Desktop\v1\src\pages\ProjectDetailPage.jsx
+  82:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  80 |     if (project) {
+  81 |       logRecentlyViewed(project.id);
+> 82 |       setTempProgress(project.progress);
+     |       ^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  83 |       setEditForm({
+  84 |         title: project.title,
+  85 |         description: project.description,  react-hooks/set-state-in-effect
+
+C:\Users\elang\OneDrive\Desktop\v1\src\pages\ProjectDetails.jsx
+  22:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  20 |     const foundProject = projects.find(p => p.id === id); // id is a string, local storage keeps it as string
+  21 |     if (foundProject) {
+> 22 |       setProject(foundProject);
+     |       ^^^^^^^^^^ Avoid calling setState() directly within an effect
+  23 |     }
+  24 |   }, [id, projects]);
+  25 |  react-hooks/set-state-in-effect
+
+✖ 11 problems (10 errors, 1 warning)
+
