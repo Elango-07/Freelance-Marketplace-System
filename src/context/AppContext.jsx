@@ -1,87 +1,36 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { LocalStorage } from '../services/localStorage';
+import { supabase } from '../lib/supabase';
+import { useAuth } from './AuthContext';
 
 const AppContext = createContext();
 
 export const useAppContext = () => useContext(AppContext);
 
 export const AppProvider = ({ children }) => {
-  const [projects, setProjects] = useState(() => LocalStorage.get('fb_projects', []));
-  const [messages, setMessages] = useState(() => LocalStorage.get('fb_messages', []));
-  const [notifications, setNotifications] = useState(() => LocalStorage.get('fb_notifications', []));
-  const [activities, setActivities] = useState(() => LocalStorage.get('fb_activities', []));
+  const { user } = useAuth();
+  const [projects, setProjects] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [recentlyViewed, setRecentlyViewed] = useState(() => LocalStorage.get('fb_recent', []));
-  const [violations, setViolations] = useState(() => LocalStorage.get('fb_violations', []));
-  const [reviews, setReviews] = useState(() => LocalStorage.get('fb_reviews', []));
-  const [securityLogs, setSecurityLogs] = useState(() => LocalStorage.get('fb_securityLogs', []));
-  const [milestoneGates, setMilestoneGates] = useState(() => LocalStorage.get('fb_milestone_gates', []));
-  const [disputes, setDisputes] = useState(() => LocalStorage.get('fb_disputes', []));
+  const [violations, setViolations] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [securityLogs, setSecurityLogs] = useState([]);
+  const [milestoneGates, setMilestoneGates] = useState([]);
+  const [disputes, setDisputes] = useState([]);
   const [chatRestrictions, setChatRestrictions] = useState(() => LocalStorage.get('fb_chat_restrictions', []));
   const [customBlockedWords, setCustomBlockedWords] = useState(() => LocalStorage.get('fb_blocked_words', []));
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { LocalStorage.set('fb_projects', projects); }, [projects]);
-  useEffect(() => { LocalStorage.set('fb_messages', messages); }, [messages]);
-  useEffect(() => { LocalStorage.set('fb_notifications', notifications); }, [notifications]);
+  // Persistence for secondary local-only data
   useEffect(() => { LocalStorage.set('fb_activities', activities); }, [activities]);
   useEffect(() => { LocalStorage.set('fb_recent', recentlyViewed); }, [recentlyViewed]);
-  useEffect(() => { LocalStorage.set('fb_violations', violations); }, [violations]);
-  useEffect(() => { LocalStorage.set('fb_reviews', reviews); }, [reviews]);
   useEffect(() => { LocalStorage.set('fb_securityLogs', securityLogs); }, [securityLogs]);
-  useEffect(() => { LocalStorage.set('fb_milestone_gates', milestoneGates); }, [milestoneGates]);
-  useEffect(() => { LocalStorage.set('fb_disputes', disputes); }, [disputes]);
   useEffect(() => { LocalStorage.set('fb_chat_restrictions', chatRestrictions); }, [chatRestrictions]);
   useEffect(() => { LocalStorage.set('fb_blocked_words', customBlockedWords); }, [customBlockedWords]);
 
-  // --- Core Utility Functions (Top Level) ---
-
-  const logSecurityEvent = (event) => {
-    const newEvent = { id: Date.now(), timestamp: new Date().toISOString(), ...event };
-    setSecurityLogs(prev => [newEvent, ...prev].slice(0, 100));
-  };
-
-  const logActivity = (type, message, details = {}) => {
-    const newActivity = { id: Date.now(), type, message, details, timestamp: new Date().toISOString() };
-    setActivities(prev => [newActivity, ...prev].slice(0, 50));
-  };
-
-  const addNotification = (notif) => {
-    const newNotif = { 
-      id: Date.now(), 
-      userId: notif.userId,
-      title: notif.title || 'New Notification',
-      message: notif.content || notif.message,
-      type: notif.type || 'info', 
-      isRead: false,
-      date: new Date().toISOString(),
-      timestamp: new Date().toISOString(),
-      projectId: notif.projectId
-    };
-    setNotifications(prev => [newNotif, ...prev]);
-  };
-
-  const markNotificationRead = (id) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
-  };
-
-  const markAllNotificationsAsRead = (userId) => {
-    setNotifications(prev => prev.map(n => n.userId === userId ? { ...n, isRead: true } : n));
-  };
-
-  const deleteNotification = (id) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
-
-  const clearOldNotifications = () => {
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    setNotifications(prev => prev.filter(n => new Date(n.timestamp).getTime() > thirtyDaysAgo));
-  };
-
-  useEffect(() => {
-    clearOldNotifications();
-  }, []);
-
-  // ─── Content Moderation Engine ────────────────────────────────────────────────
-  // Expanded regex: 10-digit phone, email, GitHub/GDrive/Dropbox/social URLs
+  // --- Content Moderation Engine ---
   const BLOCKED_PATTERNS = [
     { type: 'phone',  label: 'phone number',    regex: /\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/ },
     { type: 'email',  label: 'email address',   regex: /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/ },
@@ -92,524 +41,439 @@ export const AppProvider = ({ children }) => {
   ];
 
   const moderationCheck = (text) => {
-    const violations = [];
+    const violationList = [];
     for (const pattern of BLOCKED_PATTERNS) {
-      if (pattern.regex.test(text)) violations.push(pattern.label);
+      if (pattern.regex.test(text)) violationList.push(pattern.label);
     }
-    // Check admin-defined custom blocked words / formats
     for (const word of customBlockedWords) {
       if (!word.trim()) continue;
-      try {
-        // Try treating the word as a regex first, fallback to plain word match
-        const rx = word.startsWith('/') ? new RegExp(word.slice(1, word.lastIndexOf('/')), 'i') : new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        if (rx.test(text)) violations.push(`blocked word: "${word}"`);
-      } catch { /* invalid regex — skip */ }
+      const rx = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      if (rx.test(text)) violationList.push(`blocked word: "${word}"`);
     }
-    return violations;
+    return violationList;
   };
 
-  // Admin: add / remove custom blocked words
-  const addBlockedWord = (word) => {
-    const trimmed = word.trim();
-    if (!trimmed || customBlockedWords.includes(trimmed)) return;
-    setCustomBlockedWords(prev => [...prev, trimmed]);
-  };
+  // --- Data Fetching ---
+  const fetchData = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
 
-  const removeBlockedWord = (word) => {
-    setCustomBlockedWords(prev => prev.filter(w => w !== word));
-  };
-
-  // Returns { restricted: bool, flagged: bool, violationCount: number } for a user
-  const getChatStatus = (userId) => {
-    const userViolations = violations.filter(v => v.senderId === userId);
-    const count = userViolations.length;
-    const restriction = chatRestrictions.find(r => r.userId === userId);
-    return {
-      violationCount: count,
-      restricted: restriction?.restricted || false,
-      flagged: restriction?.flagged || false,
-      restrictedUntil: restriction?.restrictedUntil || null,
-    };
-  };
-
-  // --- Feature Functions ---
-
-  const addProject = (projectDetails, user) => {
-    if (!user?.isVerified && user?.role === 'Client') {
-      return { success: false, message: 'Please verify your email to create projects.' };
+    // Fetch Projects
+    let query = supabase.from('projects').select('*');
+    if (user.role !== 'admin') {
+      query = query.or(`client_id.eq.${user.id},partner_id.eq.${user.id}`);
     }
-    const newProject = {
-      ...projectDetails,
-      id: Date.now(),
-      status: 'Active',
-      progress: 0,
-      category: projectDetails.category || 'Web Development',
-      priority: projectDetails.priority || 'Medium',
-      milestones: [{ stage: 'Planning', progress: 0, timestamp: new Date().toISOString() }],
-      files: [],
-      createdAt: new Date().toISOString()
-    };
-    setProjects(prev => [...prev, newProject]);
-    logActivity('project_created', `Project "${newProject.title}" was created.`, { projectId: newProject.id });
-    addNotification({ 
-      userId: 'admin', 
-      type: 'Project Update', 
-      title: 'New Project Request',
-      message: `A new project "${newProject.title}" has been created by ${user.name}.`,
-      projectId: newProject.id 
-    });
-    return { success: true, project: newProject };
-  };
+    const { data: projs } = await query;
+    if (projs) setProjects(projs.map(mapProject));
 
-  const updateProject = (projectId, updates) => {
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, ...updates } : p));
-    logActivity('project_updated', 'Project details were updated.', { projectId });
-  };
+    // Fetch Milestones
+    const projectIds = projs?.map(p => p.id) || [];
+    if (projectIds.length > 0) {
+      const { data: mstones } = await supabase.from('milestones').select('*').in('project_id', projectIds);
+      if (mstones) setMilestoneGates(mstones);
 
-  const deleteProject = (projectId, adminId) => {
-    setProjects(prev => {
-      const project = prev.find(p => p.id === projectId);
-      if (adminId) {
-        logSecurityEvent({
-          type: 'project_deletion',
-          adminId,
-          details: `Admin deleted project "${project?.title}"`,
-          severity: 'medium'
-        });
-      }
-      logActivity('project_deleted', `Project "${project?.title}" was removed.`, { projectId });
-      return prev.filter(p => p.id !== projectId);
-    });
-  };
+      const { data: msgs } = await supabase
+        .from('messages')
+        .select('*')
+        .in('project_id', projectIds)
+        .order('created_at', { ascending: true });
+      if (msgs) setMessages(msgs.map(mapMessage));
+    }
 
-  const assignPartner = (projectId, partnerId, partnerName) => {
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, partnerId, partnerName } : p));
-    logActivity('partner_assigned', `Partner "${partnerName}" assigned to project.`, { projectId, partnerId });
-    addNotification({
-      userId: partnerId,
-      type: 'Project Update',
-      title: 'New Project Assigned',
-      message: `You have been assigned to the project "${projects.find(p => p.id === projectId)?.title}".`,
-      projectId
-    });
-  };
+    // Fetch Notifications
+    const { data: notifs } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { descending: true });
+    if (notifs) setNotifications(notifs.map(mapNotification));
 
-  const updateProjectProgress = (projectId, newProgress) => {
-    setProjects(prev => prev.map(p => {
-      if (p.id === projectId) {
-        const oldStatus = p.status;
-        const updated = { ...p, progress: newProgress };
-        let stage = 'Planning';
-        if (newProgress >= 100) { updated.status = 'Completed'; stage = 'Completed'; }
-        else if (newProgress >= 75) stage = 'Testing';
-        else if (newProgress >= 50) stage = 'Development';
-        else if (newProgress >= 25) stage = 'Planning';
+    // Fetch Reviews
+    const { data: revs } = await supabase.from('reviews').select('*');
+    if (revs) setReviews(revs);
 
-        const lastMilestone = p.milestones[p.milestones.length - 1];
-        if (lastMilestone.stage !== stage || lastMilestone.progress !== newProgress) {
-           updated.milestones = [...p.milestones, { stage, progress: newProgress, timestamp: new Date().toISOString() }];
+    // Fetch Activities
+    const { data: acts } = await supabase
+      .from('activity_logs')
+      .select('*')
+      .order('created_at', { descending: true })
+      .limit(50);
+    if (acts) {
+      setActivities(acts);
+      setSecurityLogs(acts.filter(a => a.severity === 'high' || a.severity === 'medium'));
+    }
+
+    setLoading(false);
+  }, [user]);
+
+  useEffect(() => {
+    fetchData();
+
+    if (!user) return;
+
+    // Real-time Subscriptions
+    const projectSub = supabase
+      .channel('projects_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setProjects(prev => [...prev, mapProject(payload.new)]);
+        } else if (payload.eventType === 'UPDATE') {
+          setProjects(prev => prev.map(p => p.id === payload.new.id ? mapProject(payload.new) : p));
+        } else if (payload.eventType === 'DELETE') {
+          setProjects(prev => prev.filter(p => p.id !== payload.old.id));
         }
-        logActivity('project_updated', `Project "${p.title}" progress updated to ${newProgress}%.`, { projectId, newProgress });
-        if (updated.status !== oldStatus) {
-           logActivity('status_changed', `Project "${p.title}" status changed to ${updated.status}.`, { projectId, status: updated.status });
-           addNotification({ 
-             userId: p.clientId, 
-             type: 'Project Update', 
-             title: 'Project Status Update',
-             message: `Project "${p.title}" is now ${updated.status}!`, 
-             projectId 
-           });
-           if (updated.status === 'Completed' && p.partnerId) {
-             addNotification({
-               userId: p.partnerId,
-               type: 'Project Update',
-               title: 'Project Completed',
-               message: `Great job! Project "${p.title}" has been marked as completed.`,
-               projectId
-             });
-           }
+      })
+      .subscribe();
+
+    const milestoneSub = supabase
+      .channel('milestones_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'milestones' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setMilestoneGates(prev => [...prev, payload.new]);
+        } else if (payload.eventType === 'UPDATE') {
+          setMilestoneGates(prev => prev.map(g => g.id === payload.new.id ? payload.new : g));
         }
-        return updated;
-      }
-      return p;
-    }));
-  };
+      })
+      .subscribe();
 
-  const addFileToProject = (projectId, file, uploader) => {
-    const newFile = { 
-      ...file, 
-      id: Date.now(), 
-      projectId, 
-      uploaderId: uploader.id, 
-      uploaderName: uploader.name,
-      uploadDate: new Date().toISOString() 
+    const messageSub = supabase
+      .channel('messages_channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        if (payload.new.receiver_id === user.id || payload.new.sender_id === user.id) {
+          setMessages(prev => [...prev, mapMessage(payload.new)]);
+        }
+      })
+      .subscribe();
+
+    const notificationSub = supabase
+      .channel('notifications_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
+        if (payload.new?.user_id === user.id) {
+          if (payload.eventType === 'INSERT') {
+            setNotifications(prev => [mapNotification(payload.new), ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setNotifications(prev => prev.map(n => n.id === payload.new.id ? mapNotification(payload.new) : n));
+          }
+        }
+      })
+      .subscribe();
+
+    const activitySub = supabase
+      .channel('activities_channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_logs' }, (payload) => {
+        setActivities(prev => [payload.new, ...prev].slice(0, 50));
+        if (payload.new.severity === 'high' || payload.new.severity === 'medium') {
+          setSecurityLogs(prev => [payload.new, ...prev].slice(0, 100));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(projectSub);
+      supabase.removeChannel(milestoneSub);
+      supabase.removeChannel(messageSub);
+      supabase.removeChannel(notificationSub);
+      supabase.removeChannel(activitySub);
     };
-    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, files: [...(p.files || []), newFile] } : p));
-    logActivity('file_uploaded', `File "${file.name}" was uploaded by ${uploader.name}.`, { projectId, fileName: file.name });
-    
-    // Notify the other party
-    const project = projects.find(p => p.id === projectId);
-    if (project) {
-      const recipientId = uploader.id === project.clientId ? project.partnerId : project.clientId;
-      if (recipientId) {
-        addNotification({
-          userId: recipientId,
-          type: 'Project Update',
-          title: 'New File Uploaded',
-          message: `${uploader.name} uploaded a new file: ${file.name}`,
-          projectId
-        });
-      }
-    }
-  };
+  }, [user, fetchData]);
 
-  const renameFile = (projectId, fileId, newName) => {
-    setProjects(prev => prev.map(p => p.id === projectId ? {
-      ...p,
-      files: p.files.map(f => f.id === fileId ? { ...f, name: newName } : f)
-    } : p));
-    logActivity('file_renamed', `File was renamed to "${newName}".`, { projectId, fileId });
-  };
-
-  const deleteFile = (projectId, fileId, userName) => {
-    setProjects(prev => prev.map(p => p.id === projectId ? {
-      ...p,
-      files: p.files.filter(f => f.id !== fileId)
-    } : p));
-    logActivity('file_deleted', `File was deleted by ${userName}.`, { projectId, fileId });
-  };
-
-  // ─── Milestone Gate System ───────────────────────────────────────────────────
-
+  // --- Milestone Gates Logic ---
   const MILESTONE_STAGES = [
     { stage: 25, label: 'Planning' },
     { stage: 50, label: 'Development' },
     { stage: 75, label: 'Testing' },
     { stage: 100, label: 'Delivery' },
   ];
-  const AUTO_APPROVE_DAYS = 5;
 
-  const initMilestoneGates = (projectId) => {
-    const existing = milestoneGates.filter(g => g.projectId === projectId);
-    if (existing.length === 4) return; // already initialised
-    const gates = MILESTONE_STAGES.map((s, i) => ({
-      id: `${projectId}-${s.stage}`,
-      projectId,
-      milestoneStage: s.stage,
-      label: s.label,
-      status: 'Pending',          // Pending | Submitted | Revision Requested | Approved | Disputed | Completed
-      locked: i !== 0,            // only 25% unlocked by default
-      revisionCount: 0,
-      revisions: [],              // [{ comment, date }]
-      submittedDate: null,
-      approvedDate: null,
+  const initMilestoneGates = async (projectId) => {
+    const existing = milestoneGates.filter(g => g.project_id === projectId);
+    if (existing.length === 4) return;
+
+    const milestonesToCreate = MILESTONE_STAGES.map(s => ({
+      project_id: projectId,
+      title: s.label,
+      percentage: s.stage,
+      status: 'pending'
     }));
-    setMilestoneGates(prev => {
-      const filtered = prev.filter(g => g.projectId !== projectId);
-      return [...filtered, ...gates];
-    });
+
+    const { error } = await supabase.from('milestones').insert(milestonesToCreate);
+    if (error) console.error('Error initializing milestones:', error);
   };
 
-  const getProjectGates = (projectId) =>
-    MILESTONE_STAGES.map(s => {
-      const found = milestoneGates.find(g => g.projectId === projectId && g.milestoneStage === s.stage);
-      return found || { id: `${projectId}-${s.stage}`, projectId, milestoneStage: s.stage, label: s.label, status: 'Pending', locked: s.stage !== 25, revisionCount: 0, revisions: [], submittedDate: null, approvedDate: null };
-    });
-
-  const submitMilestone = (projectId, stage, user) => {
-    setMilestoneGates(prev => prev.map(g => {
-      if (g.projectId !== projectId || g.milestoneStage !== stage) return g;
-      if (g.locked) return g;
-      return { ...g, status: 'Submitted', submittedDate: new Date().toISOString() };
-    }));
-    logActivity('milestone_submitted', `Milestone ${stage}% submitted by ${user.name}.`, { projectId, stage });
-    const project = projects.find(p => p.id === projectId);
-    if (project?.clientId) {
-      addNotification({
-        userId: project.clientId,
-        type: 'Milestone',
-        title: `Milestone ${stage}% Submitted`,
-        message: `${user.name} submitted work for the ${stage}% milestone. Please review.`,
-        projectId,
-      });
-    }
-  };
-
-  const approveMilestone = (projectId, stage, user) => {
-    setMilestoneGates(prev => {
-      const nextStage = MILESTONE_STAGES.find(s => s.stage > stage)?.stage;
-      return prev.map(g => {
-        if (g.projectId !== projectId) return g;
-        if (g.milestoneStage === stage) return { ...g, status: 'Approved', approvedDate: new Date().toISOString() };
-        if (g.milestoneStage === nextStage) return { ...g, locked: false }; // unlock next
-        return g;
-      });
-    });
-    updateProjectProgress(projectId, stage);
-    logActivity('milestone_approved', `Milestone ${stage}% approved by ${user.name}.`, { projectId, stage });
-    const project = projects.find(p => p.id === projectId);
-    if (project?.partnerId) {
-      addNotification({
-        userId: project.partnerId,
-        type: 'Milestone',
-        title: `Milestone ${stage}% Approved! 🎉`,
-        message: `Your ${stage}% milestone was approved. ${stage < 100 ? 'You can now work on the next stage.' : 'Great job!'}`,
-        projectId,
-      });
-    }
-  };
-
-  const requestRevision = (projectId, stage, comment, user) => {
-    setMilestoneGates(prev => prev.map(g => {
-      if (g.projectId !== projectId || g.milestoneStage !== stage) return g;
-      const newRevisions = [...(g.revisions || []), { comment, date: new Date().toISOString(), by: user.name }];
-      const newCount = (g.revisionCount || 0) + 1;
-      return {
-        ...g,
-        status: newCount >= 3 ? 'Revision Requested' : 'Revision Requested',
-        revisionCount: newCount,
-        revisions: newRevisions,
+  const getProjectGates = (projectId) => {
+    return MILESTONE_STAGES.map(s => {
+      const found = milestoneGates.find(g => g.project_id === projectId && g.percentage === s.stage);
+      return found ? {
+        id: found.id,
+        projectId: found.project_id,
+        milestoneStage: found.percentage,
+        label: found.title,
+        status: found.status.charAt(0).toUpperCase() + found.status.slice(1),
+        submittedDate: found.created_at, // Use created_at as a proxy for now or add a column
+        approvedDate: null 
+      } : { 
+        id: `${projectId}-${s.stage}`, 
+        projectId, 
+        milestoneStage: s.stage, 
+        label: s.label, 
+        status: 'Pending', 
+        locked: s.stage !== 25 
       };
-    }));
-    logActivity('revision_requested', `Revision requested for milestone ${stage}% by ${user.name}.`, { projectId, stage });
-    const project = projects.find(p => p.id === projectId);
-    if (project?.partnerId) {
-      addNotification({
-        userId: project.partnerId,
-        type: 'Milestone',
-        title: `Revision Requested — ${stage}% Milestone`,
-        message: comment,
-        projectId,
-      });
-    }
+    });
   };
 
-  const openDispute = (projectId, stage, reason, user) => {
-    const newDispute = {
-      id: Date.now(),
-      projectId,
-      milestoneStage: stage,
-      disputeReason: reason,
-      openedBy: user.id,
-      openedByName: user.name,
-      status: 'Open',
-      createdDate: new Date().toISOString(),
-    };
-    setDisputes(prev => [...prev, newDispute]);
-    setMilestoneGates(prev => prev.map(g =>
-      g.projectId === projectId && g.milestoneStage === stage
-        ? { ...g, status: 'Disputed' }
-        : g
-    ));
+  const submitMilestone = async (projectId, stage, user) => {
+    const gate = milestoneGates.find(g => g.project_id === projectId && g.percentage === stage);
+    if (!gate) return;
+
+    const { error } = await supabase.from('milestones')
+      .update({ status: 'submitted' })
+      .eq('id', gate.id);
+    
+    if (error) console.error('Error submitting milestone:', error);
+  };
+
+  const approveMilestone = async (projectId, stage, user) => {
+    const gate = milestoneGates.find(g => g.project_id === projectId && g.percentage === stage);
+    if (!gate) return;
+
+    const { error } = await supabase.from('milestones')
+      .update({ status: 'approved' })
+      .eq('id', gate.id);
+
+    if (error) console.error('Error approving milestone:', error);
+    
+    // Also update project progress
+    updateProject(projectId, { progress: stage });
+  };
+
+  const requestRevision = async (projectId, stage, comment, user) => {
+    const gate = milestoneGates.find(g => g.project_id === projectId && g.percentage === stage);
+    if (!gate) return;
+
+    const { error } = await supabase.from('milestones')
+      .update({ status: 'pending' }) // Reset to pending for revision
+      .eq('id', gate.id);
+    
+    if (error) console.error('Error requesting revision:', error);
+  };
+
+  const openDispute = async (projectId, stage, reason, user) => {
+    const { error } = await supabase.from('disputes').insert({
+      project_id: projectId,
+      opened_by: user.id,
+      reason: reason,
+      status: 'open'
+    });
+    if (error) console.error('Error opening dispute:', error);
+  };
+
+  // --- Core Utility Functions ---
+
+  const logSecurityEvent = async (event) => {
+    const { error } = await supabase.from('activity_logs').insert({
+      user_id: user?.id,
+      type: event.type,
+      message: event.details,
+      severity: event.severity || 'info',
+      details: event
+    });
+    if (error) console.error('Error logging security event:', error);
+  };
+
+  const logActivity = async (type, message, details = {}) => {
+    const { error } = await supabase.from('activity_logs').insert({
+      user_id: user?.id,
+      type,
+      message,
+      details,
+      severity: 'info'
+    });
+    if (error) console.error('Error logging activity:', error);
+  };
+
+  const addNotification = async (notif) => {
+    const { error } = await supabase.from('notifications').insert({
+      user_id: notif.userId,
+      title: notif.title || 'New Notification',
+      description: notif.content || notif.message,
+      type: notif.type || 'info',
+      project_id: notif.projectId,
+      read: false
+    });
+    if (error) console.error('Error adding notification:', error);
+  };
+
+  const markNotificationRead = async (id) => {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', id);
+    if (error) console.error('Error marking notification read:', error);
+  };
+
+  const markAllNotificationsAsRead = async (userId) => {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('user_id', userId);
+    if (error) console.error('Error marking all notifications read:', error);
+  };
+
+  const deleteNotification = async (id) => {
+    const { error } = await supabase.from('notifications').delete().eq('id', id);
+    if (error) console.error('Error deleting notification:', error);
+  };
+
+  // --- Feature Functions ---
+
+  const addProject = async (projectDetails, user) => {
+    if (!user?.verified && user?.role === 'client') {
+      return { success: false, message: 'Please verify your email to create projects.' };
+    }
+    const { data, error } = await supabase.from('projects').insert({
+      title: projectDetails.title,
+      description: projectDetails.description,
+      budget: projectDetails.budget,
+      client_id: user.id,
+      category: projectDetails.category || 'Web Development',
+      priority: projectDetails.priority || 'Medium',
+      status: 'open'
+    }).select().single();
+
+    if (error) return { success: false, message: error.message };
+
+    logActivity('project_created', `Project "${data.title}" was created.`, { projectId: data.id });
+    return { success: true, project: mapProject(data) };
+  };
+
+  const updateProject = async (projectId, updates) => {
+    const dbUpdates = {};
+    if (updates.title) dbUpdates.title = updates.title;
+    if (updates.description) dbUpdates.description = updates.description;
+    if (updates.status) dbUpdates.status = updates.status.toLowerCase();
+    if (updates.progress !== undefined) dbUpdates.progress = updates.progress;
+
+    const { error } = await supabase.from('projects').update(dbUpdates).eq('id', projectId);
+    if (error) console.error('Error updating project:', error);
+  };
+
+  const deleteProject = async (projectId, adminId) => {
+    const { error } = await supabase.from('projects').delete().eq('id', projectId);
+    if (error) console.error('Error deleting project:', error);
+  };
+
+  const assignPartner = async (projectId, partnerId, partnerName) => {
+    const { error } = await supabase.from('projects').update({
+      partner_id: partnerId,
+      partner_name: partnerName,
+      status: 'assigned'
+    }).eq('id', projectId);
+
+    if (error) {
+      console.error('Error assigning partner:', error);
+      return;
+    }
+
     addNotification({
-      userId: 'admin',
-      type: 'Dispute',
-      title: `⚠️ Dispute Opened — Project Milestone ${stage}%`,
-      message: `${user.name} opened a dispute: "${reason}". Admin review required.`,
-      projectId,
+      userId: partnerId,
+      type: 'Project Update',
+      title: 'New Project Assigned',
+      message: `You have been assigned to a new project.`,
+      projectId
     });
-    logActivity('dispute_opened', `Dispute opened for milestone ${stage}% by ${user.name}.`, { projectId, stage });
   };
 
-  const resolveDispute = (disputeId, action, adminId) => {
-    const dispute = disputes.find(d => d.id === disputeId);
-    if (!dispute) return;
-    setDisputes(prev => prev.map(d => d.id === disputeId ? { ...d, status: 'Resolved', resolvedBy: adminId, resolvedDate: new Date().toISOString(), resolution: action } : d));
-    if (action === 'approve') {
-      approveMilestone(dispute.projectId, dispute.milestoneStage, { name: 'Admin' });
-    } else {
-      setMilestoneGates(prev => prev.map(g =>
-        g.projectId === dispute.projectId && g.milestoneStage === dispute.milestoneStage
-          ? { ...g, status: 'Revision Requested' }
-          : g
-      ));
+  const sendMessage = async (projectId, senderId, receiverId, text, attachment = null) => {
+    const violations = moderationCheck(text);
+    if (violations.length > 0) {
+      return { success: false, error: `🚫 Restricted content detected: ${violations.join(', ')}. Please keep contact details within the platform.` };
     }
-    logActivity('dispute_resolved', `Dispute for milestone ${dispute.milestoneStage}% resolved by admin (${action}).`, { projectId: dispute.projectId });
+
+    const { data, error } = await supabase.from('messages').insert({
+      project_id: projectId,
+      sender_id: senderId,
+      receiver_id: receiverId,
+      message: text,
+      attachment_url: attachment
+    }).select().single();
+
+    if (error) return { success: false, message: error.message };
+    return { success: true, message: mapMessage(data) };
   };
 
-  // Auto-approval: run on mount — safely outside state setters
-  useEffect(() => {
-    const now = Date.now();
-    const threshold = AUTO_APPROVE_DAYS * 24 * 60 * 60 * 1000;
+  const markConversationRead = async (projectId, userId) => {
+    await supabase.from('messages')
+      .update({ is_read: true })
+      .eq('project_id', projectId)
+      .eq('receiver_id', userId);
+  };
 
-    const gatesToApprove = milestoneGates.filter(g => {
-      if (g.status !== 'Submitted' || !g.submittedDate) return false;
-      const age = now - new Date(g.submittedDate).getTime();
-      return age >= threshold;
+  const addReview = async (reviewData) => {
+    const { error } = await supabase.from('reviews').insert({
+      project_id: reviewData.projectId,
+      client_id: reviewData.clientId || user.id,
+      partner_id: reviewData.targetId,
+      rating: reviewData.rating,
+      comment: reviewData.comment
     });
 
-    if (gatesToApprove.length === 0) return;
+    if (error) {
+      console.error('Error adding review:', error);
+      return { success: false, error };
+    }
 
-    // 1. Update gate statuses
-    setMilestoneGates(prev => prev.map(g => {
-      const shouldApprove = gatesToApprove.some(a => a.id === g.id);
-      return shouldApprove ? { ...g, status: 'Approved', approvedDate: new Date().toISOString() } : g;
-    }));
-
-    // 2. Side effects — notifications & progress updates
-    gatesToApprove.forEach(g => {
-      const proj = projects.find(p => p.id === g.projectId);
-      if (!proj) return;
-      if (proj.partnerId) {
-        addNotification({
-          userId: proj.partnerId,
-          type: 'Milestone',
-          title: `Milestone ${g.milestoneStage}% Auto-Approved`,
-          message: `Your ${g.milestoneStage}% milestone was automatically approved after ${AUTO_APPROVE_DAYS} days.`,
-          projectId: g.projectId,
-        });
-      }
-      updateProjectProgress(g.projectId, g.milestoneStage);
+    addNotification({
+      userId: reviewData.targetId,
+      type: 'System Alert',
+      title: 'New Review Received',
+      message: `You received a new ${reviewData.rating}-star review!`
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally run once on mount only
+    return { success: true };
+  };
+
+  const deleteReview = async (reviewId) => {
+    const { error } = await supabase.from('reviews').delete().eq('id', reviewId);
+    if (error) console.error('Error deleting review:', error);
+  };
 
   const logRecentlyViewed = (projectId) => {
     setRecentlyViewed(prev => [projectId, ...prev.filter(id => id !== projectId)].slice(0, 5));
   };
 
-  const banUser = (targetUserId, adminId, reason) => {
-    logSecurityEvent({ type: 'user_ban', adminId, targetUserId, details: `User banned: ${reason}`, severity: 'high' });
-  };
-
-  const sendMessage = (projectId, senderId, receiverId, text, attachment = null) => {
-    // 1. Moderation check
-    const violationList = moderationCheck(text);
-    if (violationList.length > 0) {
-      const violation = {
-        id: Date.now(),
-        senderId, projectId, text,
-        violations: violationList,
-        timestamp: new Date().toISOString(),
-        flagged: true,
-      };
-      setViolations(prev => {
-        const updated = [violation, ...prev];
-        // Count this user's violations
-        const userCount = updated.filter(v => v.senderId === senderId).length;
-
-        // Apply auto‑moderation tiers
-        setChatRestrictions(prevR => {
-          const existing = prevR.find(r => r.userId === senderId) || { userId: senderId, restricted: false, flagged: false };
-          let updated2 = { ...existing };
-          if (userCount === 1) {
-            // Tier 1 — warning (just notify, no restriction)
-            addNotification({ userId: senderId, type: 'Security', title: '⚠️ Policy Warning', message: 'Sharing contact info is not allowed on this platform. Repeated violations will restrict your account.' });
-          } else if (userCount === 2) {
-            // Tier 2 — 24-hour chat restriction
-            const restrictedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-            updated2 = { ...updated2, restricted: true, restrictedUntil };
-            addNotification({ userId: senderId, type: 'Security', title: '🚫 Chat Restricted', message: 'Your chat has been temporarily restricted for 24 hours due to repeated policy violations.' });
-          } else if (userCount >= 3) {
-            // Tier 3 — flagged for admin review
-            updated2 = { ...updated2, flagged: true };
-            addNotification({ userId: 'admin', type: 'Security', title: '🚨 User Flagged', message: `User ${senderId} has been flagged for repeated chat policy violations. Please review.` });
-          }
-          return prevR.some(r => r.userId === senderId)
-            ? prevR.map(r => r.userId === senderId ? updated2 : r)
-            : [...prevR, updated2];
-        });
-
-        return updated;
-      });
-      logSecurityEvent({ type: 'policy_violation', userId: senderId, details: `Chat violation: ${violationList.join(', ')}`, severity: 'medium' });
-      return { error: `🚫 Restricted content detected (${violationList.join(', ')}). Sharing external contact info violates platform policy.` };
-    }
-
-    // 2. Check if user is currently restricted
-    const restriction = chatRestrictions.find(r => r.userId === senderId);
-    if (restriction?.restricted && restriction.restrictedUntil) {
-      const until = new Date(restriction.restrictedUntil).getTime();
-      if (Date.now() < until) {
-        const mins = Math.ceil((until - Date.now()) / 60000);
-        return { error: `Chat restricted. Try again in ${mins} minutes.` };
-      } else {
-        // Restriction expired — lift it
-        setChatRestrictions(prev => prev.map(r => r.userId === senderId ? { ...r, restricted: false, restrictedUntil: null } : r));
-      }
-    }
-
-    const newMessage = {
-      id: Date.now(), projectId, senderId, receiverId, text, attachment,
-      read: false, delivered: true,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, newMessage]);
-    addNotification({ 
-      userId: receiverId, 
-      type: 'Message Alert', 
-      title: 'New Message',
-      message: text.length > 60 ? text.slice(0, 57) + '…' : text, 
-      projectId 
-    });
-    return { success: true };
-  };
-
-  const editMessage = (messageId, newText) => {
-    const violationList = moderationCheck(newText);
-    if (violationList.length > 0) return { error: `Restricted content: ${violationList.join(', ')}.` };
-    setMessages(prev => prev.map(m => {
-      if (m.id === messageId) {
-        const diff = (Date.now() - new Date(m.timestamp).getTime()) / 1000 / 60;
-        if (diff > 5) return m; // Window expired
-        return { ...m, text: newText, edited: true };
-      }
-      return m;
-    }));
-    return { success: true };
-  };
-
-  const deleteMessage = (messageId) => {
-    setMessages(prev => prev.filter(m => m.id !== messageId));
-  };
-
-  const markConversationRead = (projectId, userId) => {
-    setMessages(prev => prev.map(m => (m.projectId === projectId && m.receiverId === userId) ? { ...m, read: true } : m));
-  };
-
-
-  const addReview = (reviewData) => {
-    const newReview = { ...reviewData, id: Date.now(), date: new Date().toISOString() };
-    setReviews(prev => [newReview, ...prev]);
-    addNotification({ 
-      userId: reviewData.targetId, 
-      type: 'System Alert', 
-      title: 'New Review Received',
-      message: `You received a new ${reviewData.rating}-star review!` 
-    });
-  };
-
-  const deleteReview = (reviewId) => {
-    setReviews(prev => prev.filter(r => r.id !== reviewId));
-  };
-
   const getReputationData = (userId) => {
-    const userReviews = reviews.filter(r => r.targetId === userId);
+    const userReviews = reviews.filter(r => r.partner_id === userId || r.client_id === userId);
     const avgRating = userReviews.length > 0 
       ? (userReviews.reduce((sum, r) => sum + r.rating, 0) / userReviews.length).toFixed(1)
       : 0;
     const userProjects = projects.filter(p => p.partnerId === userId || p.clientId === userId);
     const completedCount = userProjects.filter(p => p.status === 'Completed').length;
     const successRate = userProjects.length > 0 ? Math.round((completedCount / userProjects.length) * 100) : 0;
-    const rawScore = (parseFloat(avgRating) * 15) + (completedCount * 2);
-    const score = Math.min(Math.round(rawScore), 100);
-    const badges = [];
-    if (avgRating >= 4.5 && userReviews.length >= 3) badges.push('Top Rated');
-    if (completedCount >= 5) badges.push('Trusted Partner');
-    if (successRate >= 95 && completedCount >= 2) badges.push('Verified Skills');
-    return { avgRating: parseFloat(avgRating), reviewCount: userReviews.length, completedCount, successRate, score, badges, recentReviews: userReviews.slice(0, 5) };
+    
+    // Calculate simple reputation score
+    const score = Math.min(Math.round((parseFloat(avgRating) * 15) + (completedCount * 2)), 100);
+
+    return { 
+      avgRating: parseFloat(avgRating), 
+      reviewCount: userReviews.length, 
+      completedCount, 
+      successRate,
+      score,
+      recentReviews: userReviews.slice(0, 5) 
+    };
   };
 
   return (
     <AppContext.Provider value={{
-      projects, addProject, updateProject, deleteProject, assignPartner, updateProjectProgress, addFileToProject, renameFile, deleteFile,
-      messages, sendMessage, editMessage, deleteMessage, markConversationRead,
+      projects, addProject, updateProject, deleteProject, assignPartner, 
+      messages, sendMessage, markConversationRead,
       notifications, addNotification, markNotificationRead, markAllNotificationsAsRead, deleteNotification,
       activities, logActivity, recentlyViewed, logRecentlyViewed,
-      violations, chatRestrictions, getChatStatus, securityLogs, logSecurityEvent, banUser,
-      customBlockedWords, addBlockedWord, removeBlockedWord,
+      securityLogs, logSecurityEvent,
+      customBlockedWords, setCustomBlockedWords,
       reviews, addReview, deleteReview, getReputationData,
-      milestoneGates, disputes, initMilestoneGates, getProjectGates, submitMilestone, approveMilestone, requestRevision, openDispute, resolveDispute,
+      milestoneGates, disputes, initMilestoneGates, getProjectGates, submitMilestone, approveMilestone, requestRevision, openDispute,
+      isLoading: loading
     }}>
       {children}
     </AppContext.Provider>

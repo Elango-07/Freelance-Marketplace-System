@@ -6,4 +6,5 @@ export default defineConfig({
   plugins: [
     react(),
   ],
+  envPrefix: 'NEXT_PUBLIC_',
 })

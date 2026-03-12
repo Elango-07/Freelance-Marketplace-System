@@ -1,57 +1,143 @@
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
-import { LocalStorage } from '../services/localStorage';
+import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => LocalStorage.get('fb_currentUser', null));
-  const [users, setUsers] = useState(() => LocalStorage.get('fb_users', []));
-  const [loginAttempts, setLoginAttempts] = useState(() => LocalStorage.get('fb_loginAttempts', {}));
+  const [user, setUser] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [lastActivity, setLastActivity] = useState(Date.now());
 
-  useEffect(() => {
-    LocalStorage.set('fb_currentUser', user);
-    if (user) setLastActivity(Date.now());
-  }, [user]);
+  const fetchUserProfile = useCallback(async (userId) => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
+    }
+    return data;
+  }, []);
+
+  const fetchAllUsers = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching users:', error);
+      return;
+    }
+    setUsers(data);
+  }, []);
 
   useEffect(() => {
-    LocalStorage.set('fb_users', users);
-  }, [users]);
+    // Check initial session
+    const initAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const profile = await fetchUserProfile(session.user.id);
+        setUser(profile);
+        if (profile?.role === 'admin') {
+          fetchAllUsers();
+        }
+      }
+      setLoading(false);
+    };
 
-  useEffect(() => {
-    LocalStorage.set('fb_loginAttempts', loginAttempts);
-  }, [loginAttempts]);
+    initAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session) {
+        const profile = await fetchUserProfile(session.user.id);
+        setUser(profile);
+        if (profile?.role === 'admin') {
+          fetchAllUsers();
+        }
+        setLastActivity(Date.now());
+      } else {
+        setUser(null);
+        setUsers([]);
+      }
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [fetchUserProfile, fetchAllUsers]);
 
   // Auth functions
-  const logout = useCallback(() => {
+  const login = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { success: false, message: error.message };
+    
+    const profile = await fetchUserProfile(data.user.id);
+    if (profile?.is_banned) {
+      await supabase.auth.signOut();
+      return { success: false, message: 'Your account has been suspended.' };
+    }
+    
+    setUser(profile);
+    return { success: true, user: profile };
+  };
+
+  const register = async (name, email, password, role) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+          role: role.toLowerCase()
+        }
+      }
+    });
+
+    if (error) return { success: false, message: error.message };
+    
+    // The trigger will handle user creation in DB
+    // We can't immediately fetch the profile because the trigger might take a ms
+    // but the session is already active.
+    return { success: true, user: data.user };
+  };
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
     setUser(null);
   }, []);
 
-  const verifyEmail = useCallback((userId) => {
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, isVerified: true } : u));
-    if (user?.id === userId) setUser(prev => prev ? { ...prev, isVerified: true } : prev);
+  const updateProfile = async (updates) => {
+    const { data, error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating profile:', error);
+      return { success: false, error };
+    }
+    setUser(data);
+    return { success: true, user: data };
+  };
+
+  const verifyEmail = useCallback(async (userId) => {
+    const { error } = await supabase
+      .from('users')
+      .update({ verified: true })
+      .eq('id', userId);
+
+    if (error) console.error('Error verifying email:', error);
+    if (user?.id === userId) setUser(prev => prev ? { ...prev, verified: true } : prev);
   }, [user?.id]);
-
-  // Session Timeout Watcher (30 minutes)
-  useEffect(() => {
-    if (!user) return;
-
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const diff = (now - lastActivity) / 1000 / 60; // in minutes
-
-      if (diff >= 30) {
-        logout();
-        alert('Session expired due to inactivity.');
-      } else if (diff >= 28) {
-        console.warn('Session will expire in 2 minutes.');
-      }
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [user, lastActivity, logout]);
 
   // Activity Tracker
   useEffect(() => {
@@ -64,100 +150,20 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // Demo user seeding
-  useEffect(() => {
-    if (users.length === 0) {
-      const demoUsers = [
-        { id: 1, name: 'Admin User', email: 'admin@test.com', password: 'password', role: 'Admin', avatar: '', isBanned: false, isVerified: true, createdAt: '2025-01-15T10:00:00Z' },
-        { id: 2, name: 'Client User', email: 'client@test.com', password: 'password', role: 'Client', avatar: '', isBanned: false, isVerified: false, createdAt: '2025-02-10T14:30:00Z' },
-        { id: 3, name: 'Partner User', email: 'partner@test.com', password: 'password', role: 'Partner', avatar: '', isBanned: false, isVerified: true, createdAt: '2025-03-05T09:15:00Z' }
-      ];
-      setUsers(demoUsers);
-    }
-  }, []);
-
-  const login = (email, password) => {
-    const now = Date.now();
-    const attempts = loginAttempts[email] || { count: 0, lastTry: 0, lockedUntil: 0 };
-
-    if (attempts.lockedUntil > now) {
-      const remaining = Math.ceil((attempts.lockedUntil - now) / 1000 / 60);
-      return { success: false, message: `Account locked. Try again in ${remaining} minutes.` };
-    }
-
-    const foundUser = users.find(u => u.email === email && u.password === password);
-    
-    if (foundUser) {
-      if (foundUser.isBanned) return { success: false, message: 'Your account has been suspended.' };
-      
-      const currentSignature = navigator.userAgent;
-      const knownSignatures = foundUser.knownDevices || [];
-      const isNewSession = knownSignatures.length > 0 && !knownSignatures.includes(currentSignature);
-      
-      if (isNewSession) {
-        console.warn('Suspicious login detected from new browser session.');
-      }
-
-      if (!knownSignatures.includes(currentSignature)) {
-        setUsers(prev => prev.map(u => 
-          u.id === foundUser.id 
-            ? { ...u, knownDevices: [...knownSignatures, currentSignature] } 
-            : u
-        ));
-      }
-
-      setLoginAttempts(prev => ({ ...prev, [email]: { count: 0, lastTry: now, lockedUntil: 0 } }));
-      setUser(foundUser);
-      return { success: true, user: foundUser, suspicious: isNewSession };
-    }
-
-    const newCount = attempts.count + 1;
-    let lockedUntil = 0;
-    if (newCount >= 5) {
-      lockedUntil = now + (15 * 60 * 1000); // 15 mins
-    }
-
-    setLoginAttempts(prev => ({
-      ...prev,
-      [email]: { count: newCount, lastTry: now, lockedUntil }
-    }));
-
-    return { 
-      success: false, 
-      message: newCount >= 5 
-        ? 'Too many failed attempts. Account locked for 15 minutes.' 
-        : `Invalid credentials. ${5 - newCount} attempts remaining.` 
-    };
-  };
-
-  const register = (name, email, password, role) => {
-    if (users.find(u => u.email === email)) {
-      return { success: false, message: 'Email already exists' };
-    }
-    const newUser = {
-      id: Date.now(),
-      name,
-      email,
-      password,
-      role,
-      avatar: '',
-      isBanned: false,
-      isVerified: role === 'Admin',
-      createdAt: new Date().toISOString()
-    };
-    setUsers([...users, newUser]);
-    setUser(newUser);
-    return { success: true, user: newUser };
-  };
-
-  const updateProfile = (updates) => {
-    const updatedUser = { ...user, ...updates };
-    setUser(updatedUser);
-    setUsers(users.map(u => u.id === user.id ? updatedUser : u));
-  };
+  if (loading) return null;
 
   return (
-    <AuthContext.Provider value={{ user, users, login, register, logout, updateProfile, verifyEmail, lastActivity }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      users, 
+      login, 
+      register, 
+      logout, 
+      updateProfile, 
+      verifyEmail, 
+      lastActivity,
+      isLoading: loading 
+    }}>
       {children}
     </AuthContext.Provider>
   );
