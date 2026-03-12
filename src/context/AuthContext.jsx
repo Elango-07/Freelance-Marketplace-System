@@ -73,8 +73,33 @@ export const AuthProvider = ({ children }) => {
     return () => subscription.unsubscribe();
   }, [fetchUserProfile, fetchAllUsers]);
 
+  // --- Demo User Configuration ---
+  const DEMO_USERS = {
+    'admin@fms.com':   { id: '00000000-0000-0000-0000-000000000001', name: 'Demo Admin',   role: 'admin',    password: 'admin123' },
+    'client@fms.com':  { id: '00000000-0000-0000-0000-000000000002', name: 'Demo Client',  role: 'client',   password: 'client123' },
+    'partner@fms.com': { id: '00000000-0000-0000-0000-000000000003', name: 'Demo Partner', role: 'partner',  password: 'partner123' },
+  };
+
   // Auth functions
   const login = async (email, password) => {
+    // Check for demo users first
+    if (DEMO_USERS[email] && DEMO_USERS[email].password === password) {
+      const demoUser = {
+        ...DEMO_USERS[email],
+        email,
+        verified: true,
+        created_at: new Date().toISOString()
+      };
+      
+      // Try to fetch real profile if it exists in DB, otherwise use mock
+      const realProfile = await fetchUserProfile(demoUser.id);
+      const finalUser = realProfile || demoUser;
+      
+      setUser(finalUser);
+      setLastActivity(Date.now());
+      return { success: true, user: finalUser };
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { success: false, message: error.message };
     

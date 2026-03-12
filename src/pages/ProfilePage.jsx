@@ -41,20 +41,23 @@ const ProfilePage = () => {
   const [avatar, setAvatar] = useState(user.avatar);
   const [message, setMessage] = useState({ type: '', text: '' });
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     setMessage({ type: '', text: '' });
     
-    // Simulate API call
-    setTimeout(() => {
-      updateProfile({
-        name: formData.name,
-        email: formData.email,
-        avatar: avatar
-      });
+    const { success, error } = await updateProfile({
+      name: formData.name,
+      profile_photo: avatar,
+      // email is handled by auth, not profile table usually, but we have it in profiles too
+      email: formData.email 
+    });
+
+    if (success) {
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
       setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    }, 500);
+    } else {
+      setMessage({ type: 'error', text: error?.message || 'Failed to update profile.' });
+    }
   };
 
   const handleFileChange = (e) => {

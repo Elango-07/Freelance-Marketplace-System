@@ -453,12 +453,18 @@ export const AppProvider = ({ children }) => {
     // Calculate simple reputation score
     const score = Math.min(Math.round((parseFloat(avgRating) * 15) + (completedCount * 2)), 100);
 
+    const badges = [];
+    if (score >= 80) badges.push('top_rated');
+    if (completedCount >= 5) badges.push('pro_partner');
+    if (userReviews.length >= 10) badges.push('trusted');
+
     return { 
       avgRating: parseFloat(avgRating), 
       reviewCount: userReviews.length, 
       completedCount, 
       successRate,
       score,
+      badges,
       recentReviews: userReviews.slice(0, 5) 
     };
   };
