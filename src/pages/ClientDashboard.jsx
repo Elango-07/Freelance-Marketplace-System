@@ -78,7 +78,14 @@ const ClientDashboard = () => {
     }
   };
 
-  const { verifyEmail } = useAuth();
+  const { verifyEmail, resendVerificationEmail } = useAuth();
+  const [sendingVerification, setSendingVerification] = useState(false);
+
+  const handleVerifyNow = async () => {
+    setSendingVerification(true);
+    await resendVerificationEmail();
+    setSendingVerification(false);
+  };
 
   return (
     <Box>
@@ -99,7 +106,7 @@ const ClientDashboard = () => {
                  <Text fontSize="sm" color="orange.600">Please verify your email to unlock all platform features like posting projects.</Text>
                </VStack>
             </HStack>
-            <Button size="sm" colorScheme="orange" onClick={() => verifyEmail(user.id)}>
+            <Button size="sm" colorScheme="orange" onClick={handleVerifyNow} isLoading={sendingVerification} loadingText="Sending...">
               Verify Now
             </Button>
           </HStack>

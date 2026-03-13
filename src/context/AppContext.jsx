@@ -268,6 +268,19 @@ export const AppProvider = ({ children }) => {
     if (error) console.error('Error opening dispute:', error);
   };
 
+  const resolveDispute = async (disputeId, action, resolverId) => {
+    const status = action === 'approve' ? 'resolved' : 'dismissed';
+    const { error } = await supabase.from('disputes')
+      .update({ status, resolved_at: new Date().toISOString() })
+      .eq('id', disputeId);
+    
+    if (error) {
+      console.error('Error resolving dispute:', error);
+      return { success: false, message: error.message };
+    }
+    return { success: true };
+  };
+
   // --- Core Utility Functions ---
 
   const logSecurityEvent = async (event) => {
@@ -441,6 +454,16 @@ export const AppProvider = ({ children }) => {
     setRecentlyViewed(prev => [projectId, ...prev.filter(id => id !== projectId)].slice(0, 5));
   };
 
+  const addBlockedWord = (word) => {
+    if (!customBlockedWords.includes(word)) {
+      setCustomBlockedWords(prev => [...prev, word]);
+    }
+  };
+
+  const removeBlockedWord = (word) => {
+    setCustomBlockedWords(prev => prev.filter(w => w !== word));
+  };
+
   const getReputationData = (userId) => {
     const userReviews = reviews.filter(r => r.partner_id === userId || r.client_id === userId);
     const avgRating = userReviews.length > 0 
@@ -476,9 +499,10 @@ export const AppProvider = ({ children }) => {
       notifications, addNotification, markNotificationRead, markAllNotificationsAsRead, deleteNotification,
       activities, logActivity, recentlyViewed, logRecentlyViewed,
       securityLogs, logSecurityEvent,
-      customBlockedWords, setCustomBlockedWords,
+      violations, chatRestrictions,
+      customBlockedWords, setCustomBlockedWords, addBlockedWord, removeBlockedWord,
       reviews, addReview, deleteReview, getReputationData,
-      milestoneGates, disputes, initMilestoneGates, getProjectGates, submitMilestone, approveMilestone, requestRevision, openDispute,
+      milestoneGates, disputes, initMilestoneGates, getProjectGates, submitMilestone, approveMilestone, requestRevision, openDispute, resolveDispute,
       isLoading: loading
     }}>
       {children}

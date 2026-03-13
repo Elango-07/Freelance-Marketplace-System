@@ -1,5 +1,7 @@
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { authApi } from '../services/api';
+import { useToast } from '@chakra-ui/react';
 
 const AuthContext = createContext();
 
@@ -10,6 +12,7 @@ export const AuthProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lastActivity, setLastActivity] = useState(Date.now());
+  const toast = useToast();
 
   const fetchUserProfile = useCallback(async (userId) => {
     const { data, error } = await supabase
@@ -39,39 +42,26 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    // Check initial session
     const initAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser(profile);
-        if (profile?.role === 'admin') {
-          fetchAllUsers();
+      const token = localStorage.getItem('fb_token');
+      if (token) {
+        try {
+          const { data } = await authApi.getMe();
+          setUser(data.user);
+          if (data.user?.role === 'admin') {
+            fetchAllUsers();
+          }
+        } catch (error) {
+          console.error('Session initialization failed:', error);
+          localStorage.removeItem('fb_token');
+          setUser(null);
         }
       }
       setLoading(false);
     };
 
     initAuth();
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUser(profile);
-        if (profile?.role === 'admin') {
-          fetchAllUsers();
-        }
-        setLastActivity(Date.now());
-      } else {
-        setUser(null);
-        setUsers([]);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [fetchUserProfile, fetchAllUsers]);
+  }, [fetchAllUsers]);
 
   // --- Demo User Configuration ---
   const DEMO_USERS = {
@@ -88,52 +78,44 @@ export const AuthProvider = ({ children }) => {
         ...DEMO_USERS[email],
         email,
         verified: true,
+        isVerified: true,
         created_at: new Date().toISOString()
       };
       
-      // Try to fetch real profile if it exists in DB, otherwise use mock
-      const realProfile = await fetchUserProfile(demoUser.id);
-      const finalUser = realProfile || demoUser;
-      
-      setUser(finalUser);
+      setUser(demoUser);
+      localStorage.setItem('fb_token', 'demo-token');
       setLastActivity(Date.now());
-      return { success: true, user: finalUser };
+      return { success: true, user: demoUser };
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { success: false, message: error.message };
-    
-    const profile = await fetchUserProfile(data.user.id);
-    if (profile?.is_banned) {
-      await supabase.auth.signOut();
-      return { success: false, message: 'Your account has been suspended.' };
+    try {
+      const { data } = await authApi.login({ email, password });
+      localStorage.setItem('fb_token', data.token);
+      setUser(data.user);
+      setLastActivity(Date.now());
+      return { success: true, user: data.user };
+    } catch (error) {
+      console.error('Login error:', error);
+      const message = error.response?.data?.error || error.message || 'Login failed. Please check your credentials.';
+      return { success: false, message };
     }
-    
-    setUser(profile);
-    return { success: true, user: profile };
   };
 
   const register = async (name, email, password, role) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name,
-          role: role.toLowerCase()
-        }
-      }
-    });
-
-    if (error) return { success: false, message: error.message };
-    
-    // The trigger will handle user creation in DB
-    // We can't immediately fetch the profile because the trigger might take a ms
-    // but the session is already active.
-    return { success: true, user: data.user };
+    try {
+      const { data } = await authApi.register({ name, email, password, role });
+      localStorage.setItem('fb_token', data.token);
+      setUser(data.user);
+      return { success: true, user: data.user, message: data.message };
+    } catch (error) {
+      console.error('Registration error:', error);
+      const message = error.response?.data?.error || error.message || 'Registration failed. Backend server might be offline.';
+      return { success: false, message: `Error: ${message}` };
+    }
   };
 
   const logout = useCallback(async () => {
+    localStorage.removeItem('fb_token');
     await supabase.auth.signOut();
     setUser(null);
   }, []);
@@ -150,19 +132,55 @@ export const AuthProvider = ({ children }) => {
       console.error('Error updating profile:', error);
       return { success: false, error };
     }
-    setUser(data);
+    setUser(data ? { ...data, isVerified: data.verified } : data);
     return { success: true, user: data };
   };
 
+  // Old local-only verifyEmail kept for backward compat
   const verifyEmail = useCallback(async (userId) => {
     const { error } = await supabase
       .from('users')
       .update({ verified: true })
       .eq('id', userId);
-
     if (error) console.error('Error verifying email:', error);
-    if (user?.id === userId) setUser(prev => prev ? { ...prev, verified: true } : prev);
+    if (user?.id === userId) setUser(prev => prev ? { ...prev, verified: true, isVerified: true } : prev);
   }, [user?.id]);
+
+  // Real resend: triggers a Supabase verification email
+  const resendVerificationEmail = useCallback(async () => {
+    if (!user?.email) return;
+    try {
+      // Use getUser() to fetch the latest state from the server
+      const { data: userData } = await supabase.auth.getUser();
+      const serverUser = userData?.user;
+      const isConfirmed = !!(serverUser?.email_confirmed_at || serverUser?.confirmed_at);
+
+      if (isConfirmed) {
+        // User is already confirmed — just sync to DB and update UI
+        await supabase.from('users').update({ verified: true }).eq('id', user.id);
+        setUser(prev => prev ? { ...prev, isVerified: true, verified: true } : prev);
+        toast({ title: 'Email verified! ✅', description: 'Your account is now fully verified.', status: 'success', duration: 4000, isClosable: true });
+        return;
+      }
+
+      // Otherwise, try to resend
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: user.email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+      if (error) {
+        // If resend fails (e.g. already confirmed), just let them know
+        toast({ title: 'Check your email', description: `A verification email was already sent to ${user.email}. Please check your inbox and spam folder.`, status: 'info', duration: 6000, isClosable: true });
+      } else {
+        toast({ title: 'Verification email sent! 📧', description: `Please check your inbox at ${user.email} and click the link.`, status: 'success', duration: 6000, isClosable: true });
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Could not send verification email.', status: 'error', duration: 4000, isClosable: true });
+    }
+  }, [user?.email, user?.id, toast]);
 
   // Activity Tracker
   useEffect(() => {
@@ -186,6 +204,7 @@ export const AuthProvider = ({ children }) => {
       logout, 
       updateProfile, 
       verifyEmail, 
+      resendVerificationEmail,
       lastActivity,
       isLoading: loading 
     }}>
