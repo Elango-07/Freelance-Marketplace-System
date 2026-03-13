@@ -24,29 +24,41 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogin = (e) => {
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      const role = user.role?.toLowerCase();
+      if (role === 'admin') navigate('/dashboard/admin');
+      else if (role === 'client') navigate('/dashboard/client');
+      else if (role === 'partner') navigate('/dashboard/partner');
+      else navigate('/');
+    }
+  }, [user, navigate]);
+
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
-    const result = login(email, password);
+    const result = await login(email, password);
     if (result.success) {
       if (result.suspicious) {
         alert('Security Alert: Login detected from a new browser session. If this wasn\'t you, please change your password.');
       }
       const { role: userRole } = result.user;
-      if (userRole === 'Admin') navigate('/dashboard/admin');
-      else if (userRole === 'Client') navigate('/dashboard/client');
-      else if (userRole === 'Partner') navigate('/dashboard/partner');
+      const role = userRole.toLowerCase();
+      if (role === 'admin') navigate('/dashboard/admin');
+      else if (role === 'client') navigate('/dashboard/client');
+      else if (role === 'partner') navigate('/dashboard/partner');
       else navigate('/');
     } else {
       setError(result.message);
     }
   };
-  const fillDemo = (demoEmail) => {
+  const fillDemo = (demoEmail, demoPass) => {
     setEmail(demoEmail);
-    setPassword('password');
+    setPassword(demoPass);
   };
 
   return (
@@ -126,13 +138,13 @@ const Login = () => {
           <VStack spacing="2" fontSize="xs" color="gray.500">
             <Text fontWeight="bold">Demo Accounts:</Text>
              <HStack spacing="2">
-                <Link onClick={() => fillDemo('admin@test.com')} color="blue.500" _hover={{ textDecoration: 'underline' }}>admin@test.com</Link> 
+                <Link onClick={() => fillDemo('admin@fms.com', 'admin123')} color="blue.500" _hover={{ textDecoration: 'underline' }}>Admin</Link> 
                 <Text>|</Text>
-                <Link onClick={() => fillDemo('client@test.com')} color="blue.500" _hover={{ textDecoration: 'underline' }}>client@test.com</Link>
+                <Link onClick={() => fillDemo('client@fms.com', 'client123')} color="blue.500" _hover={{ textDecoration: 'underline' }}>Client</Link>
                 <Text>|</Text>
-                <Link onClick={() => fillDemo('partner@test.com')} color="blue.500" _hover={{ textDecoration: 'underline' }}>partner@test.com</Link>
+                <Link onClick={() => fillDemo('partner@fms.com', 'partner123')} color="blue.500" _hover={{ textDecoration: 'underline' }}>Partner</Link>
              </HStack>
-            <Text fontFamily="mono">Password: password</Text>
+            <Text fontFamily="mono">Password: [role]123</Text>
           </VStack>
         </Box>
       </Container>

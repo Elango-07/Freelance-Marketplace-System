@@ -32,9 +32,10 @@ const RoleBasedLayout = () => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (user.role === 'Admin') return <AdminLayout />;
-  if (user.role === 'Client') return <ClientLayout />;
-  if (user.role === 'Partner') return <PartnerLayout />;
+  const role = user.role?.toLowerCase();
+  if (role === 'admin') return <AdminLayout />;
+  if (role === 'client') return <ClientLayout />;
+  if (role === 'partner') return <PartnerLayout />;
   
   return <Navigate to="/login" replace />;
 };

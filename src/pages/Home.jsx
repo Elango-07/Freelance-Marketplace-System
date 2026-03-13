@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   Box, Flex, VStack, HStack, SimpleGrid, Container,
   Heading, Text, Button, Icon, Badge, Avatar,
@@ -117,12 +118,22 @@ const StarRow = () => (
 );
 
 const Navbar = () => {
+  const { user } = useAuth();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', fn);
     return () => window.removeEventListener('scroll', fn);
   }, []);
+
+  const getDashboardLink = () => {
+    if (!user) return '/login';
+    const role = user.role?.toLowerCase();
+    if (role === 'admin') return '/dashboard/admin';
+    if (role === 'client') return '/dashboard/client';
+    if (role === 'partner') return '/dashboard/partner';
+    return '/';
+  };
 
   return (
     <Box
@@ -155,10 +166,16 @@ const Navbar = () => {
           </HStack>
 
           <HStack spacing="3">
-            <Button as={RouterLink} to="/login" variant="ghost" size="sm" color="gray.600">Sign In</Button>
-            <Button as={RouterLink} to="/register" colorScheme="blue" size="sm" rightIcon={<Icon as={FiArrowRight} />}>
-              Get Started
-            </Button>
+            {user ? (
+              <Button as={RouterLink} to={getDashboardLink()} colorScheme="blue" size="sm" variant="ghost">Dashboard</Button>
+            ) : (
+              <>
+                <Button as={RouterLink} to="/login" variant="ghost" size="sm" color="gray.600">Sign In</Button>
+                <Button as={RouterLink} to="/register" colorScheme="blue" size="sm" rightIcon={<Icon as={FiArrowRight} />}>
+                  Get Started
+                </Button>
+              </>
+            )}
           </HStack>
         </Flex>
       </Container>
@@ -232,7 +249,7 @@ const Home = () => {
 
             <Flex gap="4" direction={{ base: 'column', sm: 'row' }} justify="center">
               <Button
-                as={RouterLink} to="/register"
+                as={RouterLink} to={user ? getDashboardLink() : "/register"}
                 size="lg"
                 colorScheme="blue"
                 rightIcon={<Icon as={FiArrowRight} />}
@@ -241,20 +258,20 @@ const Home = () => {
                 _hover={{ bgGradient: 'linear(to-r, blue.600, purple.700)', transform: 'translateY(-2px)', boxShadow: 'lg' }}
                 transition="all 0.2s"
               >
-                Get Started Free
+                {user ? 'Go to Dashboard' : 'Get Started Free'}
               </Button>
               <Button
-                as={RouterLink} to="/login"
+                as={RouterLink} to={user ? "/projects" : "/login"}
                 size="lg"
                 variant="outline"
                 borderColor="gray.300"
                 bg="white"
-                leftIcon={<Icon as={FiPlay} />}
+                leftIcon={<Icon as={user ? FiGrid : FiPlay} />}
                 px="8" h="14" borderRadius="xl"
                 _hover={{ bg: 'gray.50', transform: 'translateY(-2px)', boxShadow: 'md' }}
                 transition="all 0.2s"
               >
-                Explore Platform
+                {user ? 'Browse Projects' : 'Explore Platform'}
               </Button>
             </Flex>
 
