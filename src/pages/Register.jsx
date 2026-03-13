@@ -50,7 +50,7 @@ const Register = () => {
     setPasswordStrength(calculateStrength(val));
   };
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
 
@@ -59,12 +59,14 @@ const Register = () => {
       return;
     }
 
-    const result = register(name, email, password, role);
+    const result = await register(name, email, password, role);
     if (result.success) {
-      const { role: userRole } = result.user;
-      if (userRole === 'Admin') navigate('/dashboard/admin');
-      else if (userRole === 'Client') navigate('/dashboard/client');
-      else if (userRole === 'Partner') navigate('/dashboard/partner');
+      // Roles are lowercased in the backend, but AuthContext returns the raw user object
+      // which might have the metadata as lowercase. App.jsx handles both now.
+      const userRole = (result.user.user_metadata?.role || role).toLowerCase();
+      if (userRole === 'admin') navigate('/dashboard/admin');
+      else if (userRole === 'client') navigate('/dashboard/client');
+      else if (userRole === 'partner') navigate('/dashboard/partner');
       else navigate('/');
     } else {
       setError(result.message);

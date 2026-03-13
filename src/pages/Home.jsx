@@ -104,6 +104,15 @@ const NAV_LINKS = [
 
 const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
 
+const getDashboardLink = (user) => {
+  if (!user) return '/login';
+  const role = user.role?.toLowerCase();
+  if (role === 'admin') return '/dashboard/admin';
+  if (role === 'client') return '/dashboard/client';
+  if (role === 'partner') return '/dashboard/partner';
+  return '/';
+};
+
 // ─── Sub-components ────────────────────────────────────────────────────────
 const SectionLabel = ({ children }) => (
   <Badge colorScheme="blue" variant="subtle" px="3" py="1" borderRadius="full" fontSize="xs" letterSpacing="widest" textTransform="uppercase" mb="3">
@@ -125,15 +134,6 @@ const Navbar = () => {
     window.addEventListener('scroll', fn);
     return () => window.removeEventListener('scroll', fn);
   }, []);
-
-  const getDashboardLink = () => {
-    if (!user) return '/login';
-    const role = user.role?.toLowerCase();
-    if (role === 'admin') return '/dashboard/admin';
-    if (role === 'client') return '/dashboard/client';
-    if (role === 'partner') return '/dashboard/partner';
-    return '/';
-  };
 
   return (
     <Box
@@ -167,7 +167,7 @@ const Navbar = () => {
 
           <HStack spacing="3">
             {user ? (
-              <Button as={RouterLink} to={getDashboardLink()} colorScheme="blue" size="sm" variant="ghost">Dashboard</Button>
+              <Button as={RouterLink} to={getDashboardLink(user)} colorScheme="blue" size="sm" variant="ghost">Dashboard</Button>
             ) : (
               <>
                 <Button as={RouterLink} to="/login" variant="ghost" size="sm" color="gray.600">Sign In</Button>
@@ -249,7 +249,7 @@ const Home = () => {
 
             <Flex gap="4" direction={{ base: 'column', sm: 'row' }} justify="center">
               <Button
-                as={RouterLink} to={user ? getDashboardLink() : "/register"}
+                as={RouterLink} to={user ? getDashboardLink(user) : "/register"}
                 size="lg"
                 colorScheme="blue"
                 rightIcon={<Icon as={FiArrowRight} />}
