@@ -185,6 +185,7 @@ const Navbar = () => {
 
 // ─── Main Component ────────────────────────────────────────────────────────
 const Home = () => {
+  const { user } = useAuth();
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
 
